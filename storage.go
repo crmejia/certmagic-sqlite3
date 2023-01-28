@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
 	"time"
 
 	"github.com/caddyserver/certmagic"
@@ -56,7 +57,7 @@ func (s *storage) Store(ctx context.Context, key string, value []byte) error {
 	}
 
 	t := time.Now()
-	_, err = stmt.Exec(key, value, t.Format(time.Layout), len(value))
+	_, err = stmt.ExecContext(ctx, key, value, t.Format(time.Layout), len(value))
 	if err != nil {
 		return err
 	}
@@ -64,34 +65,22 @@ func (s *storage) Store(ctx context.Context, key string, value []byte) error {
 }
 
 func (s *storage) Load(ctx context.Context, key string) ([]byte, error) {
-	rows, err := s.db.Query(getKey, key)
-	if err != nil {
-		return nil, err
-	}
-
 	value := []byte{}
-	for rows.Next() {
-		err = rows.Scan(&value)
-		if err != nil {
-			return nil, err
+	if err := s.db.QueryRowContext(ctx, getKey, key).Scan(&value); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fs.ErrNotExist
 		}
-	}
-
-	if err = rows.Err(); err != nil {
 		return nil, err
 	}
 	return value, nil
 }
 
 func (s *storage) Exists(ctx context.Context, key string) bool {
-	rows, err := s.db.Query(getKey, key)
-	if err != nil {
+	var value []byte
+	if err := s.db.QueryRowContext(ctx, getKey, key).Scan(&value); err != nil {
 		return false
 	}
-	if rows.Next() {
-		return true
-	}
-	return false
+	return true
 }
 
 func (s *storage) Delete(ctx context.Context, key string) error {
@@ -103,29 +92,49 @@ func (s *storage) Delete(ctx context.Context, key string) error {
 		return err
 	}
 
-	_, err = stmt.Exec(key)
+	result, err := stmt.ExecContext(ctx, key)
 	if err != nil {
 		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fs.ErrNotExist
 	}
 	return nil
 }
 
 func (s *storage) List(ctx context.Context, prefix string, recursive bool) ([]string, error) {
-	rows, err := s.db.Query(listKey, prefix)
-	if err != nil {
-		return []string{}, err
+	if recursive {
+		return nil, errors.New("recursive not supported")
 	}
 
-	keyList := []string{}
-	for rows.Next() {
-		var (
-			key string
-		)
+	rows, err := s.db.QueryContext(ctx, listKey, prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	keyList := make([]string, 0)
+	var key string
+	if rows.Next() {
 		err = rows.Scan(&key)
 		if err != nil {
 			return keyList, err
 		}
 		keyList = append(keyList, key)
+		for rows.Next() {
+			err = rows.Scan(&key)
+			if err != nil {
+				return keyList, err
+			}
+			keyList = append(keyList, key)
+		}
+	} else {
+		return keyList, fs.ErrNotExist
 	}
 
 	if err = rows.Err(); err != nil {
@@ -135,34 +144,22 @@ func (s *storage) List(ctx context.Context, prefix string, recursive bool) ([]st
 }
 
 func (s *storage) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error) {
-	rows, err := s.db.Query(statKey, key)
+	var modifiedString string
+	var size int64
+	if err := s.db.QueryRowContext(ctx, statKey, key).Scan(&modifiedString, &size); err != nil {
+		if err == sql.ErrNoRows {
+			return certmagic.KeyInfo{}, fs.ErrNotExist
+		}
+		return certmagic.KeyInfo{}, err
+	}
+	modified, err := time.Parse(time.Layout, modifiedString)
 	if err != nil {
 		return certmagic.KeyInfo{}, err
 	}
-
-	keyInfo := certmagic.KeyInfo{}
-	for rows.Next() {
-		var (
-			modifiedString string
-			modified       time.Time
-			size           int64
-		)
-		err = rows.Scan(&modifiedString, &size)
-		if err != nil {
-			return certmagic.KeyInfo{}, err
-		}
-
-		modified, err = time.Parse(time.Layout, modifiedString)
-		if err != nil {
-			return certmagic.KeyInfo{}, err
-		}
-		keyInfo.Key = key
-		keyInfo.Modified = modified
-		keyInfo.Size = size
-	}
-
-	if err = rows.Err(); err != nil {
-		return certmagic.KeyInfo{}, err
+	keyInfo := certmagic.KeyInfo{
+		Key:      key,
+		Modified: modified,
+		Size:     size,
 	}
 	return keyInfo, nil
 }

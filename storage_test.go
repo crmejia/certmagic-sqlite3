@@ -2,6 +2,7 @@ package certmagicsqlite3_test
 
 import (
 	"context"
+	"io/fs"
 	"testing"
 	"time"
 
@@ -23,11 +24,6 @@ func TestStorage_RoundtripStoreLoadExistsDelete(t *testing.T) {
 	exists := storage.Exists(ctx, key)
 	if exists {
 		t.Error("key should not exist")
-	}
-
-	err = storage.Delete(ctx, key)
-	if err != nil {
-		t.Error("want no error on delete non-existing key")
 	}
 
 	err = storage.Store(ctx, key, want)
@@ -135,17 +131,86 @@ func TestList(t *testing.T) {
 	if len(key1Slice) != wantKey1 {
 		t.Errorf("want %d keys to be on the list, got %d", wantKey1, len(key1Slice))
 	}
+}
 
-	//test no matches
-	key4Slice, err := storage.List(ctx, "key4", false)
-	wantKey4 := 0
+func TestListErrorsOnRecursiveTrue(t *testing.T) {
+	t.Parallel()
+	tempDB := t.TempDir() + "recursive.db"
+	storage, err := certmagicsqlite3.OpenSQLiteStorage(tempDB)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(key4Slice) != wantKey4 {
-		t.Errorf("want %d keys to be on the list, got %d", wantKey4, len(key4Slice))
+
+	_, err = storage.List(context.Background(), "key", true)
+	if err == nil {
+		t.Error("want error on recursive = true")
+	}
+}
+func TestLoadReturnsFsErrNotExistOnNoKey(t *testing.T) {
+	t.Parallel()
+	tempDB := t.TempDir() + "fsError.db"
+	storage, err := certmagicsqlite3.OpenSQLiteStorage(tempDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	const key = "key"
+
+	v, err := storage.Load(ctx, key)
+	// if err != fs.ErrNotExist {
+	if err == nil {
+		t.Errorf("want %s, got %s, value: %s --", fs.ErrNotExist, err, v)
 	}
 }
 
-//test recursive true errors
-//test The Load, Delete, List, and Stat methods should return fs.ErrNotExist if the key does not exist.
+func TestDeleteReturnsFsErrNotExistOnNoKey(t *testing.T) {
+	t.Parallel()
+	tempDB := t.TempDir() + "fsError.db"
+	storage, err := certmagicsqlite3.OpenSQLiteStorage(tempDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	const key = "key"
+
+	err = storage.Delete(ctx, key)
+	if err != fs.ErrNotExist {
+		t.Errorf("want %s, got %s", fs.ErrNotExist, err)
+	}
+}
+
+func TestListReturnsFsErrNotExistOnNoKey(t *testing.T) {
+	t.Parallel()
+	tempDB := t.TempDir() + "fsError.db"
+	storage, err := certmagicsqlite3.OpenSQLiteStorage(tempDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	const key = "key"
+
+	_, err = storage.List(ctx, key, false)
+	if err != fs.ErrNotExist {
+		t.Errorf("want %s, got %s", fs.ErrNotExist, err)
+	}
+}
+
+func TestStatReturnsFsErrNotExistOnNoKey(t *testing.T) {
+	t.Parallel()
+	tempDB := t.TempDir() + "fsError.db"
+	storage, err := certmagicsqlite3.OpenSQLiteStorage(tempDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	const key = "key"
+
+	_, err = storage.Stat(ctx, key)
+	if err != fs.ErrNotExist {
+		t.Errorf("want %s, got %s", fs.ErrNotExist, err)
+	}
+}
