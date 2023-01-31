@@ -48,6 +48,9 @@ func (s *storage) Store(ctx context.Context, key string, value []byte) error {
 	if key == "" {
 		return errors.New("key cannot be empty")
 	}
+	storeContext, cancel:= context.WithCancel(ctx)
+	defer cancel()
+
 	if len(value) == 0 {
 		return errors.New("value cannot be empty")
 	}
@@ -57,7 +60,7 @@ func (s *storage) Store(ctx context.Context, key string, value []byte) error {
 	}
 
 	t := time.Now()
-	_, err = stmt.ExecContext(ctx, key, value, t.Format(time.Layout), len(value))
+	_, err = stmt.ExecContext(storeContext, key, value, t.Format(time.Layout), len(value))
 	if err != nil {
 		return err
 	}
@@ -65,8 +68,11 @@ func (s *storage) Store(ctx context.Context, key string, value []byte) error {
 }
 
 func (s *storage) Load(ctx context.Context, key string) ([]byte, error) {
+	loadContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	value := []byte{}
-	if err := s.db.QueryRowContext(ctx, getKey, key).Scan(&value); err != nil {
+	if err := s.db.QueryRowContext(loadContext, getKey, key).Scan(&value); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fs.ErrNotExist
 		}
@@ -76,14 +82,19 @@ func (s *storage) Load(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (s *storage) Exists(ctx context.Context, key string) bool {
+	existsContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var value []byte
-	if err := s.db.QueryRowContext(ctx, getKey, key).Scan(&value); err != nil {
+	if err := s.db.QueryRowContext(existsContext, getKey, key).Scan(&value); err != nil {
 		return false
 	}
 	return true
 }
 
 func (s *storage) Delete(ctx context.Context, key string) error {
+	deleteContext, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if key == "" {
 		return errors.New("key cannot be empty")
 	}
@@ -92,7 +103,7 @@ func (s *storage) Delete(ctx context.Context, key string) error {
 		return err
 	}
 
-	result, err := stmt.ExecContext(ctx, key)
+	result, err := stmt.ExecContext(deleteContext, key)
 	if err != nil {
 		return err
 	}
@@ -108,11 +119,14 @@ func (s *storage) Delete(ctx context.Context, key string) error {
 }
 
 func (s *storage) List(ctx context.Context, prefix string, recursive bool) ([]string, error) {
+	listContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	if recursive {
 		return nil, errors.New("recursive not supported")
 	}
 
-	rows, err := s.db.QueryContext(ctx, listKey, prefix)
+	rows, err := s.db.QueryContext(listContext, listKey, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -144,9 +158,12 @@ func (s *storage) List(ctx context.Context, prefix string, recursive bool) ([]st
 }
 
 func (s *storage) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error) {
+	statContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var modifiedString string
 	var size int64
-	if err := s.db.QueryRowContext(ctx, statKey, key).Scan(&modifiedString, &size); err != nil {
+	if err := s.db.QueryRowContext(statContext, statKey, key).Scan(&modifiedString, &size); err != nil {
 		if err == sql.ErrNoRows {
 			return certmagic.KeyInfo{}, fs.ErrNotExist
 		}
