@@ -214,3 +214,48 @@ func TestStatReturnsFsErrNotExistOnNoKey(t *testing.T) {
 		t.Errorf("want %s, got %s", fs.ErrNotExist, err)
 	}
 }
+
+func TestLockUnlockErrors(t *testing.T) {
+	t.Parallel()
+	tempDB := t.TempDir() + "lockUnlockErrors.db"
+	storage, err := certmagicsqlite3.OpenSQLiteStorage(tempDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const testLock = "testLock"
+	storage.SetLockTimeOut(100 * time.Millisecond)
+
+	err = storage.Lock(ctx, testLock)
+	if err == nil {
+		t.Errorf("this is unimplemented. So want to get unimplemented error:")
+	}
+
+	err = storage.Unlock(ctx, testLock)
+	if err == nil {
+		t.Errorf("this is unimplemented. So want to get unimplemented error:")
+	}
+
+}
+
+// func TestLockTimesOut(t *testing.T) {
+// 	t.Parallel()
+// 	tempDB := t.TempDir() + "fsError.db"
+// 	storage, err := certmagicsqlite3.OpenSQLiteStorage(tempDB)
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	ctx := context.Background()
+// 	const testLock = "testLock"
+// 	storage.SetLockTimeOut(100 * time.Millisecond)
+//
+// 	err = storage.Lock(ctx, testLock)
+// 	if err != nil{
+// 		t.Fatalf("want to get Lock. Got an error instead: %s", err.Error())
+// 	}
+// 	time.Sleep(200*time.Millisecond)
+// 	err = storage.Lock(ctx, testLock)
+// 	if err != nil{
+// 		t.Fatalf("should be able to get Lock. Got an error instead: %s", err.Error())
+// 	}
+// }

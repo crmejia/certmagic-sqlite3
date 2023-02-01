@@ -11,44 +11,47 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type storage struct {
-	db *sql.DB
+type Storage struct {
+	DataSourceName        string `json:"datasourcename,omitempty"`
+	db                    *sql.DB
+	lockExpirationTimeOut time.Duration
 }
 
-func OpenSQLiteStorage(dataSourceName string) (storage, error) {
+func OpenSQLiteStorage(dataSourceName string) (Storage, error) {
 	if dataSourceName == "" {
-		return storage{}, errors.New("data source cannot be empty")
+		return Storage{}, errors.New("data source cannot be empty")
 	}
 
 	db, err := sql.Open("sqlite", dataSourceName)
 	if err != nil {
-		return storage{}, err
+		return Storage{}, err
 	}
 
 	for _, stmt := range []string{pragmaWALEnabled, pragma500BusyTimeout, pragmaCaseSenstive} {
 		_, err = db.Exec(stmt, nil)
 		if err != nil {
-			return storage{}, err
+			return Storage{}, err
 		}
 	}
 
 	_, err = db.Exec(createTable)
 	if err != nil {
-		return storage{}, err
+		return Storage{}, err
 	}
 
-	s := storage{
-		db: db,
+	s := Storage{
+		db:                    db,
+		lockExpirationTimeOut: defaultLockTimeOut,
 	}
 	return s, nil
 
 }
 
-func (s *storage) Store(ctx context.Context, key string, value []byte) error {
+func (s *Storage) Store(ctx context.Context, key string, value []byte) error {
 	if key == "" {
 		return errors.New("key cannot be empty")
 	}
-	storeContext, cancel:= context.WithCancel(ctx)
+	storeContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	if len(value) == 0 {
@@ -67,7 +70,7 @@ func (s *storage) Store(ctx context.Context, key string, value []byte) error {
 	return nil
 }
 
-func (s *storage) Load(ctx context.Context, key string) ([]byte, error) {
+func (s *Storage) Load(ctx context.Context, key string) ([]byte, error) {
 	loadContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -81,7 +84,7 @@ func (s *storage) Load(ctx context.Context, key string) ([]byte, error) {
 	return value, nil
 }
 
-func (s *storage) Exists(ctx context.Context, key string) bool {
+func (s *Storage) Exists(ctx context.Context, key string) bool {
 	existsContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -92,7 +95,7 @@ func (s *storage) Exists(ctx context.Context, key string) bool {
 	return true
 }
 
-func (s *storage) Delete(ctx context.Context, key string) error {
+func (s *Storage) Delete(ctx context.Context, key string) error {
 	deleteContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if key == "" {
@@ -118,7 +121,7 @@ func (s *storage) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-func (s *storage) List(ctx context.Context, prefix string, recursive bool) ([]string, error) {
+func (s *Storage) List(ctx context.Context, prefix string, recursive bool) ([]string, error) {
 	listContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -157,7 +160,7 @@ func (s *storage) List(ctx context.Context, prefix string, recursive bool) ([]st
 	return keyList, nil
 }
 
-func (s *storage) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error) {
+func (s *Storage) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error) {
 	statContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -181,6 +184,20 @@ func (s *storage) Stat(ctx context.Context, key string) (certmagic.KeyInfo, erro
 	return keyInfo, nil
 }
 
+// Lock unimplemented TODO
+func (s *Storage) Lock(ctx context.Context, name string) error {
+	return errors.New("unimplemented")
+}
+
+// UnLock unimplemented TODO
+func (s *Storage) Unlock(ctx context.Context, name string) error {
+	return errors.New("unimplemented")
+}
+
+func (s *Storage) SetLockTimeOut(timeout time.Duration) {
+	s.lockExpirationTimeOut = timeout
+}
+
 const createTable = `
 CREATE TABLE IF NOT EXISTS certmagic(
 	key TEXT NOT NULL PRIMARY KEY,
@@ -202,3 +219,10 @@ const listKey = `SELECT key from certmagic WHERE key LIKE ? ||  '%' `
 const statKey = `SELECT modified,size from certmagic WHERE key = ?`
 
 const deleteKey = `DELETE FROM certmagic WHERE key=?`
+
+const defaultLockTimeOut = 500 * time.Millisecond
+
+// interface guards
+var (
+	_ certmagic.Storage = (*Storage)(nil)
+)
