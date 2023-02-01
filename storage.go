@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"time"
 
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/certmagic"
 	_ "modernc.org/sqlite"
 )
@@ -198,6 +199,10 @@ func (s *Storage) SetLockTimeOut(timeout time.Duration) {
 	s.lockExpirationTimeOut = timeout
 }
 
+func (s *Storage) CertMagicStorage() (certmagic.Storage, error) {
+	return s, nil
+}
+
 const createTable = `
 CREATE TABLE IF NOT EXISTS certmagic(
 	key TEXT NOT NULL PRIMARY KEY,
@@ -224,5 +229,6 @@ const defaultLockTimeOut = 500 * time.Millisecond
 
 // interface guards
 var (
-	_ certmagic.Storage = (*Storage)(nil)
+	_ certmagic.Storage      = (*Storage)(nil)
+	_ caddy.StorageConverter = (*Storage)(nil)
 )
